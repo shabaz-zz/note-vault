@@ -1,0 +1,104 @@
+# ============================================================
+#  docker-compose.yml — NoteVault
+#
+#  This file wires three containers together:
+#    1. frontend  — Nginx serving index.html
+#    2. backend   — VaultCourier Java Spring Boot API
+#    3. database  — MariaDB storing the notes
+#
+#  Run with:  docker compose up --build
+#  Stop with: docker compose down
+# ============================================================
+
+# The version of the compose file format
+version: "3.8"
+
+# ── SERVICES ────────────────────────────────────────────────
+# Each service = one container
+services:
+
+  # ── 1. FRONTEND ─────────────────────────────────────────
+  # Nginx serves your index.html to the browser.
+  # Also forwards any /api/ calls to the backend container.
+  frontend:
+    build:
+      context: ./frontend       # look inside the frontend/ folder
+      dockerfile: Dockerfile    # use the Dockerfile found there
+    container_name: nodevault_frontend
+    ports:
+      - "80:80"                 # your browser opens localhost:80
+    depends_on:
+      - backend                 # don't start until backend is up
+    networks:
+      - nodevault_net           # connects to the shared network
+    restart: unless-stopped     # auto-restart if it crashes
+
+
+  # ── 2. BACKEND ──────────────────────────────────────────
+  # VaultCourier Java API — handles all /api/ routes.
+  # Talks to the database container to read/write notes.
+  backend:
+    build:
+      context: ./backend        # look inside the backend/ folder
+      dockerfile: Dockerfile    # use the Dockerfile found there
+    container_name: nodevault_backend
+    ports:
+      - "5000:5000"             # exposed so you can test API directly
+    depends_on:
+      database:
+        condition: service_healthy  # wait until MariaDB is truly ready
+    environment:
+      # These get injected into application.properties as:
+      # ${DB_HOST}, ${DB_NAME}, ${DB_USER}, ${DB_PASS}
+      DB_HOST: database         # "database" = the service name below
+      DB_NAME: notesdb          # name of the database to create
+      DB_USER: vaultuser        # database username
+      DB_PASS: vaultpass        # database password
+    networks:
+      - nodevault_net
+    restart: unless-stopped
+
+
+  # ── 3. DATABASE ─────────────────────────────────────────
+  # MariaDB stores all your notes permanently.
+  # Data is saved in a volume so it survives container restarts.
+  database:
+    image: mariadb:11           # pulls official MariaDB image
+    container_name: nodevault_db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass   # root password (keep this safe)
+      MYSQL_DATABASE: notesdb         # auto-creates this database
+      MYSQL_USER: vaultuser           # creates this user
+      MYSQL_PASSWORD: vaultpass       # with this password
+    volumes:
+      - db_data:/var/lib/mysql  # saves data here permanently
+                                # even if container is stopped/removed
+    networks:
+      - nodevault_net
+    ports:
+      - "3306:3306"             # optional: lets you inspect DB directly
+    healthcheck:
+      # Docker checks this before starting the backend.
+      # Waits until MariaDB is actually ready to accept connections.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s             # check every 10 seconds
+      timeout: 5s               # give it 5 seconds to respond
+      retries: 5                # try 5 times before giving up
+    restart: unless-stopped
+
+
+# ── NETWORKS ────────────────────────────────────────────────
+# Creates a private internal network so the containers
+# can talk to each other by service name.
+# frontend → backend → database all use "nodevault_net"
+networks:
+  nodevault_net:
+    driver: bridge              # standard Docker network type
+
+
+# ── VOLUMES ─────────────────────────────────────────────────
+# Named volume for the database.
+# Your notes survive even if you run "docker compose down".
+# Only "docker compose down -v" would delete the data.
+volumes:
+  db_data:
