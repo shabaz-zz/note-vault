@@ -1,0 +1,103 @@
+# ============================================================
+#  build.yml — GitHub Actions Workflow
+#  Automatically builds Note Vault for Windows, Linux and Mac
+#  every time you push to the main branch.
+#
+#  Produces:
+#    Windows  → .exe installer
+#    Linux    → .AppImage and .deb
+#    macOS    → .dmg
+# ============================================================
+
+name: Build Note Vault
+
+# ── WHEN TO RUN ─────────────────────────────────────────────
+# Triggers every time you push to main branch
+on:
+  push:
+    branches:
+      - main
+  # Also lets you trigger it manually from GitHub website
+  workflow_dispatch:
+
+# ── JOBS ────────────────────────────────────────────────────
+jobs:
+  build-tauri:
+    # Run the same job on three different machines simultaneously
+    strategy:
+      fail-fast: false    # if one platform fails, others keep building
+      matrix:
+        platform:
+          - os: ubuntu-22.04
+            label: Linux
+          - os: windows-latest
+            label: Windows
+          - os: macos-latest
+            label: macOS
+
+    # Use whichever OS is in the current matrix run
+    runs-on: ${{ matrix.platform.os }}
+
+    steps:
+
+      # ── STEP 1: Download your code ──────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── STEP 2: Install Node.js ─────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # ── STEP 3: Install Rust ────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # ── STEP 4: Cache Rust dependencies ─────────────────
+      # Saves build time on future runs by caching downloads
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workdir: ./notevault-app/src-tauri
+
+      # ── STEP 5: Install Linux system dependencies ────────
+      # Only runs on the Linux machine
+      - name: Install Linux dependencies
+        if: matrix.platform.os == 'ubuntu-22.04'
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev
+
+      # ── STEP 6: Install npm dependencies ────────────────
+      - name: Install npm dependencies
+        working-directory: ./notevault-app
+        run: npm install
+
+      # ── STEP 7: Build the Tauri app ─────────────────────
+      # This compiles and packages the app for the current OS
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ./notevault-app
+          # Creates a GitHub Release automatically with the built files
+          tagName: v__VERSION__
+          releaseName: Note Vault v__VERSION__
+          releaseBody: |
+            ## Note Vault Release
+
+            Download the installer for your platform below.
+
+            - **Windows** → `.exe`
+            - **macOS** → `.dmg`
+            - **Linux** → `.AppImage` or `.deb`
+          releaseDraft: false
+          prerelease: false
