@@ -48,7 +48,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       # ── STEP 3: Install Rust ────────────────────────────
       - name: Setup Rust
@@ -59,7 +59,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: swatinem/rust-cache@v2
         with:
-          workdir: ./notevault-app/src-tauri
+          cache-directories: ./notevault-app/src-tauri
 
       # ── STEP 5: Install Linux system dependencies ────────
       # Only runs on the Linux machine
